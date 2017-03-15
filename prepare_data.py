@@ -27,6 +27,7 @@ def parse_args():
     add_arg('input_file_list', nargs='+',
             help='Text file of input files')
     add_arg('-o', '--output-npz', help='Output numpy binary file')
+    add_arg('--compress', action='store_true', help='Compress output npz')
     add_arg('-n', '--max-events', type=int,
             help='Maximum number of events to read')
     add_arg('-p', '--num-workers', type=int, default=0,
@@ -196,8 +197,12 @@ def main():
 
     # Write results to npz file
     if args.output_npz is not None:
-        logging.info('Writing output to %s' % args.output_npz)
-        np.savez_compressed(args.output_npz, **data)
+        logging.info('Writing to file %s' % args.output_npz)
+        logging.info('Output keys: %s' % data.keys())
+        if args.compress:
+            np.savez_compressed(args.output_npz, **data)
+        else:
+            np.savez(args.output_npz, **data)
 
     # TODO: finish picking up stuff from below
 
