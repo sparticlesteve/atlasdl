@@ -30,7 +30,7 @@ def parse_args():
     add_arg('--compress', action='store_true', help='Compress output npz')
     add_arg('-n', '--max-events', type=int,
             help='Maximum number of events to read')
-    add_arg('-p', '--num-workers', type=int, default=0,
+    add_arg('-p', '--num-workers', type=int, default=1,
             help='Number of concurrent worker processes')
     return parser.parse_args()
 
@@ -100,11 +100,8 @@ def process_events(data):
 
     return skimData
 
-def filter_delphes_to_numpy(files, max_events=None):
-    """Processes some files by converting to numpy and applying filtering"""
-
-    if type(files) != list:
-        files = [files]
+def filter_delphes_to_numpy(root_file, max_events=None):
+    """Processes one file by converting to numpy and applying filtering"""
 
     # Branch name remapping for convenience
     branch_dict = {
@@ -124,8 +121,9 @@ def filter_delphes_to_numpy(files, max_events=None):
     }
 
     # Convert the data to numpy
-    logging.info('Now processing: %s' % files)
-    data = get_data(files, branch_dict, treename='Delphes', stop=max_events)
+    logging.info('Now processing: %s' % root_file)
+    data = get_data(root_file, branch_dict, treename='Delphes',
+                    stop=max_events)
     if data is None:
         return None
 
@@ -157,6 +155,21 @@ def merge_results(dicts):
         result[key] = np.concatenate([d[key] for d in dicts])
     return result
 
+def process_files_parallel(input_files, num_workers, max_events=None):
+    """Process the input files in parallel with MP"""
+    # Create a pool of workers
+    logging.info('Starting process pool of %d workers' % num_workers)
+    pool = mp.Pool(processes=num_workers)
+    # Convert to numpy structure in parallel
+    parallel_results = [pool.apply_async(filter_delphes_to_numpy,
+                                         (f, max_events))
+                        for f in input_files]
+    task_data = [r.get() for r in parallel_results]
+    pool.close()
+    pool.join()
+    # Merge the results from each task
+    logging.info('Merging results from parallel tasks')
+    return merge_results(task_data)
 
 def main():
     """Main execution function"""
@@ -174,21 +187,9 @@ def main():
             input_files.extend(map(str.rstrip, f.readlines()))
     logging.info('Processing %i input files' % len(input_files))
 
-    filter_func = filter_delphes_to_numpy
-
     # Parallel processing
-    if args.num_workers > 0:
-        logging.info('Starting process pool of %d workers' % args.num_workers)
-        # Create a pool of workers
-        pool = mp.Pool(processes=args.num_workers)
-        # Convert to numpy structure in parallel
-        task_data = pool.map(filter_func, input_files)
-        # Merge the results from each task
-        data = merge_results(task_data)
-    # Sequential processing
-    else:
-        # Run the conversion and filter directly
-        data = filter_func(input_files, args.max_events)
+    data = process_files_parallel(input_files, args.num_workers,
+                                  args.max_events)
 
     # Abort gracefully if no events survived skimming
     if data['skimEvents'].sum() == 0:
