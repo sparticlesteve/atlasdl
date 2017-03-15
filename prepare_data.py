@@ -19,6 +19,18 @@ from physics_selections import (filter_objects, filter_events,
                                 is_signal_region_event)
 from utils import suppress_stdout_stderr
 
+class XsecMap():
+    _xsecMap = None
+
+    @staticmethod
+    def load_xsec_map():
+        return dict(np.genfromtxt('data/cross_sections.txt', dtype='O,f8'))
+
+    @classmethod
+    def get_xsec(cls, sample):
+        if cls._xsecMap is None:
+            cls._xsecMap = cls.load_xsec_map()
+        return cls._xsecMap[sample]
 
 def parse_args():
     """Parse the command line arguments"""
@@ -33,6 +45,11 @@ def parse_args():
     add_arg('-p', '--num-workers', type=int, default=1,
             help='Number of concurrent worker processes')
     return parser.parse_args()
+
+def get_xsec(filename):
+    """Parse the sample name from the filename and lookup its xross section"""
+    sample = os.path.basename(filename).split('-')[0]
+    return XsecMap.get_xsec(sample)
 
 def get_data(files, branch_dict, **kwargs):
     """Applies root_numpy to get out a numpy array"""
@@ -131,16 +148,11 @@ def filter_delphes_to_numpy(root_file, max_events=None):
     logging.info('Applying event selection')
     skimData = process_events(data)
 
-    # Get the sample config string from the filenames.
-    # For now, out of laziness, allow only one sample at a time.
-    # NOTE: this assumes a particular naming convention of the delphes files!!
-    #samples = map(lambda s: os.path.basename(s).split('-')[0], files)
-    #if np.unique(samples).size > 1:
-    #    raise Exception('Mixing delphes samples not yet supported: ' + str(samples))
+    # Add the file name to the (meta) data
+    skimData['inputFile'] = np.array([os.path.basename(root_file)], dtype='O')
 
-    # Store the sample name for metadata lookups
-    #num_event = results['tree'].shape[0]
-    #results['sample'] = np.full(num_event, samples[0], 'S30')
+    # Add the cross section for this file
+    skimData['xsec'] = np.array([get_xsec(root_file)])
 
     return skimData
 
