@@ -17,8 +17,6 @@ from physics_selections import (filter_objects, filter_events,
                                 sum_fatjet_mass, fatjet_deta12,
                                 pass_sr4j, pass_sr5j,
                                 is_signal_region_event)
-#from weights import (get_xaod_rpv_params, get_xaod_bkg_xsec, get_xaod_sumw,
-#                     get_delphes_xsec, get_delphes_sumw)
 from utils import suppress_stdout_stderr
 
 
@@ -28,24 +26,11 @@ def parse_args():
     add_arg = parser.add_argument
     add_arg('input_file_list', nargs='+',
             help='Text file of input files')
-    #add_arg('--input-type', default='xaod', choices=['xaod', 'delphes'],
-    #        help='Specify xaod or delphes input file type')
     add_arg('-o', '--output-npz', help='Output numpy binary file')
-    #add_arg('--output-h5', help='Output hdf5 file')
     add_arg('-n', '--max-events', type=int,
             help='Maximum number of events to read')
     add_arg('-p', '--num-workers', type=int, default=0,
             help='Number of concurrent worker processes')
-    #add_arg('--write-clus', action='store_true',
-    #        help='Write cluster info to output')
-    #add_arg('--write-fjets', action='store_true',
-    #        help='Write fat jet info to output')
-    #add_arg('--write-mass', action='store_true',
-    #        help='Write RPV theory mass params to output')
-    #add_arg('--write-tracks', action='store_true',
-    #        help='Write ID track variables')
-    #add_arg('--bins', default=64, type=int,
-    #        help='The number of bins aka the dimensions of the hist data')
     return parser.parse_args()
 
 def get_data(files, branch_dict, **kwargs):
@@ -160,26 +145,6 @@ def filter_delphes_to_numpy(files, max_events=None):
 
     return skimData
 
-def get_calo_image(tree, xkey='clusEta', ykey='clusPhi', wkey='clusE',
-                   bins=100, xlim=[-2.5, 2.5], ylim=[-3.15, 3.15]):
-    """Convert the numpy structure with calo clusters into 2D calo histograms"""
-    # Bin the data and reshape so we can concatenate along first axis into a 3D array.
-    def hist2d(x, y, w):
-        return (np.histogram2d(x, y, bins=bins, weights=w, range=[xlim, ylim])[0]
-                .reshape([1, bins, bins]))
-    hist_list = map(hist2d, tree[xkey], tree[ykey], tree[wkey])
-    return np.concatenate(hist_list)
-
-def get_track_image(tree, xkey='trackEta', ykey='trackPhi',
-                   bins=100, xlim=[-2.5, 2.5], ylim=[-3.15, 3.15]):
-    """Convert the numpy structure with calo clusters into 2D calo histograms"""
-    # Bin the data and reshape so we can concatenate along first axis into a 3D array.
-    def hist2d(x, y):
-        return (np.histogram2d(x, y, bins=bins, range=[xlim, ylim])[0]
-                .reshape([1, bins, bins]))
-    hist_list = map(hist2d, tree[xkey], tree[ykey])
-    return np.concatenate(hist_list)
-
 def merge_results(dicts):
     """Merge a list of dictionaries with numpy arrays"""
     dicts = filter(None, dicts)
@@ -191,22 +156,6 @@ def merge_results(dicts):
         result[key] = np.concatenate([d[key] for d in dicts])
     return result
 
-def get_meta_data_delphes(sample_names):
-    if sample_names is None:
-        logging.warn('no sample_names => no metadata => no event weights')
-        return None, None, None, None
-    # TODO: parse these out from the sample name
-    mglu, mneu = None, None
-    xsec = np.vectorize(get_delphes_xsec)(sample_names)
-    sumw = np.vectorize(get_delphes_sumw)(sample_names)
-    return mglu, mneu, xsec, sumw
-
-def get_event_weights(xsec, mcw, sumw, lumi=36000):
-    """Calculate event weights"""
-    # Need to extract the first entry of the generator weights per event
-    if type(mcw) == np.ndarray:
-        mcw = np.vectorize(lambda g: g[0])(mcw)
-    return xsec * mcw * lumi / sumw
 
 def main():
     """Main execution function"""
@@ -252,55 +201,10 @@ def main():
 
     # TODO: finish picking up stuff from below
 
-    # Get the 2D histogram
-    #data['hist'] = get_calo_image(tree, bins=args.bins)
-    #data['histEM'] = get_calo_image(tree, xkey='clusEta', ykey='clusPhi', wkey='clusEM', bins=args.bins)
-    #data['histtrack'] = get_track_image(tree, bins=args.bins)
-
-    # Get sample metadata
-    #if args.input_type == 'xaod':
-    #    mglu, mneu, xsec, sumw = get_meta_data_xaod(tree['dsid'])
-    #    mcw = tree['genWeight']
-    #else:
-    #    mglu, mneu, xsec, sumw = get_meta_data_delphes(data.get('sample', None))
-    #    mcw = 1
-
-    # Calculate the event weights
-    #data['weight'] = (get_event_weights(xsec, mcw, sumw)
-    #                  if sumw is not None else None)
-
     # Signal region flags
     #passSR4J = data['passSR4J']
     #passSR5J = data['passSR5J']
     #passSR = data['passSR']
-
-    # Dictionary of output data
-    #outputs = {}
-    #output_keys = ['hist', 'histEM', 'histtrack', 'passSR4J', 'passSR5J', 'passSR', 'weight']
-
-    # Addition optional outputs
-    #if args.write_clus:
-    #    for key in ['clusEta', 'clusPhi', 'clusE', 'clusEM']:
-    #        try:
-    #            outputs[key] = tree[key]
-    #        except KeyError:
-    #            logging.warn('Failed to write missing key:', key)
-    #if args.write_fjets:
-    #    output_keys += ['fatJetPt', 'fatJetEta', 'fatJetPhi', 'fatJetM']
-    #if args.write_mass:
-    #    if mglu is not None:
-    #        outputs['mGlu'] = mglu
-    #    if mneu is not None:
-    #        outputs['mNeu'] = mneu
-    #if args.write_tracks:
-    #    output_keys += ['trackEta', 'trackPhi']
-
-    #for key in output_keys:
-    #    try:
-    #        outputs[key] = data[key]
-    #    except KeyError:
-    #        logging.warn('Failed to write missing key:', key)
-    #        raise
 
     # Print some summary information
     #logging.info('SR4J selected events: %d / %d' % (np.sum(passSR4J), tree.size))
@@ -313,11 +217,6 @@ def main():
     #logging.info('SR selected events: %d / %d' % (np.sum(passSR), tree.size))
     #if weight is not None:
     #    logging.info('SR weighted events: %f' % (np.sum(weight[passSR])))
-
-    # Write results to hdf5
-    #if args.output_h5 is not None:
-    #    logging.info('Writing output to', args.output_h5)
-    #    write_hdf5(args.output_h5, outputs)
 
     logging.info('Done!')
 
