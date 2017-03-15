@@ -41,7 +41,7 @@ def get_data(files, branch_dict, **kwargs):
             tree = rnp.root2array(files, branches=branch_dict.keys(),
                                   warn_missing_tree=True, **kwargs)
     except IOError as e:
-        logging.warn('WARNING: root2array gave an IOError:', e)
+        logging.warn('WARNING: root2array gave an IOError: %s' % e)
         return None
     # Convert immutable structured array into dictionary of arrays
     data = dict()
