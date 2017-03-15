@@ -1,0 +1,3 @@
+/global/cscratch1/sd/wbhimji/DelphesOutput/PU-HighRes-2/RPV10_1400_850-10k-1-1-1.root
+/global/cscratch1/sd/wbhimji/DelphesOutput/PU-HighRes-2/RPV10_1400_850-10k-1-1-2.root
+/global/cscratch1/sd/wbhimji/DelphesOutput/PU-HighRes-2/RPV10_1400_850-10k-1-1-3.root
