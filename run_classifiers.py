@@ -71,7 +71,7 @@ def parse_object_features(array, num_objects, default_val=0.):
         output_array[i,:k] = array[i][:k]
     return output_array
 
-def prepare_sample_features(sample_file, num_jets=3, max_events=None):
+def prepare_sample_features(sample_file, num_jets=4, max_events=None):
     """Load the model features from a sample file"""
     data = retrieve_data(
         sample_file, 'fatJetPt', 'fatJetEta', 'fatJetPhi', 'fatJetM')
