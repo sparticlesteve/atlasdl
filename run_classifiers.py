@@ -15,6 +15,10 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import make_pipeline
 from sklearn.linear_model import LogisticRegression
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.neural_network import MLPClassifier
 import sklearn.metrics
 import matplotlib.pyplot as plt
 
@@ -35,6 +39,8 @@ def parse_args():
     add_arg('--num-sig', type=int, help='Number of signal events to use')
     add_arg('--num-bkg', type=int,
             help='Number of bkg events to use (per sample)')
+    add_arg('-w', '--apply-weights', action='store_true',
+            help='Use event weights for classifier evaluation')
     return parser.parse_args()
 
 def get_file_keys(file_name):
@@ -80,13 +86,33 @@ def prepare_sample_features(sample_file, num_jets=4, max_events=None):
         data = [d[:max_events] for d in data]
     return np.hstack(parse_object_features(a, num_jets) for a in data)
 
-def calc_fpr_tpr(y_true, y_pred):
+def get_sample_weight(sample_file, lumi=1000.):
+    """Calculate the weight for one sample"""
+    xsec, tot_events = retrieve_data(sample_file, 'xsec', 'totalEvents')
+    assert np.unique(xsec).size == 1
+    return xsec[0] * lumi / tot_events.sum()
+
+# TODO: adjust for weighted samples!!
+def calc_fpr_tpr(y_true, y_pred, w):
     """Calculate false-positive and true-positive rates"""
-    tp = np.logical_and(y_true, y_pred).sum()
-    fp = np.logical_and(np.logical_not(y_true), y_pred).sum()
-    tpr = tp / y_true.sum()
-    fpr = fp / (y_true.size - y_true.sum())
+    tp = (y_true * y_pred * w).sum()
+    fp = (np.logical_not(y_true) * y_pred * w).sum()
+    nsig = (y_true * w).sum()
+    nbkg = w.sum() - nsig
+    tpr = tp / nsig
+    fpr = fp / nbkg
     return fpr, tpr
+
+def report_classifier(classifier, X_train, X_test, y_train, y_test,
+                      w_train=None, w_test=None):
+    pred_test = classifier.predict(X_test)
+    acc_train = classifier.score(X_train, y_train) # sample_weight=w_train)
+    acc_test = classifier.score(X_test, y_test) # sample_weight=w_test)
+    class_report = sklearn.metrics.classification_report(
+        y_test, pred_test, sample_weight=w_test, target_names=['QCD', 'RPV'])
+    logging.info('Unweighted train set accuracy: %f' % acc_train)
+    logging.info('Unweighted test set accuracy: %f' % acc_test)
+    logging.info('Unweighted test set classification report:\n%s' % class_report)
 
 def main():
     """Main execution function"""
@@ -120,19 +146,31 @@ def main():
     # Retrieve the analysis SR flag
     sample_passSR = [retrieve_data(f, 'passSR')[0][:nevt]
                      for (f, nevt) in zip(sample_files, sample_events)]
+    # Sample weights
+    if args.apply_weights:
+        sample_weights = [get_sample_weight(f) for f in sample_files]
+    else:
+        sample_weights = [1. for f in sample_files]
 
     # Merge the feature vectors
     X = np.concatenate(sample_features)
     y = np.concatenate([np.full(nevt, l) for (nevt, l) in
                         zip(sample_events, sample_labels)])
     passSR = np.concatenate(sample_passSR)
+    weights = np.concatenate([np.full(nevt, w) for (nevt, w) in
+                              zip(sample_events, sample_weights)])
 
     logging.info('X-y shapes: %s, %s' % (X.shape, y.shape))
     logging.info('True fraction: %s' % y.mean())
 
+    # How large is the dataset? I might consider writing it out eventually
+    logging.info('Size of X: %g MB' % (X.dtype.itemsize * X.size / 1e6))
+    logging.info('Size of y: %g MB' % (y.dtype.itemsize * y.size / 1e6))
+
     # Split into training and test samples
-    X_train, X_test, y_train, y_test, passSR_train, passSR_test = (
-        train_test_split(X, y, passSR))
+    (X_train, X_test, y_train, y_test,
+        w_train, w_test, passSR_train, passSR_test) = (
+            train_test_split(X, y, weights, passSR))
 
     # Evaluate the existing analysis cuts
     logging.info('Classification report for SR:\n%s' %
@@ -140,52 +178,33 @@ def main():
             y_test, passSR_test, target_names=['Background', 'Signal']))
 
     # Calculate TPR and FPR for passSR
-    sr_fpr, sr_tpr = calc_fpr_tpr(y_test, passSR_test)
+    sr_fpr, sr_tpr = calc_fpr_tpr(y_test, passSR_test, w_test)
     logging.info('SR FPR: %f, TPR: %f' % (sr_fpr, sr_tpr))
 
+    logging.info('Training LogisticRegression')
     lr_clf = make_pipeline(StandardScaler(), LogisticRegression())
     lr_clf.fit(X_train, y_train)
-    logging.info('Classification report for Logistic Regression:\n%s' %
-        sklearn.metrics.classification_report(y_test, lr_clf.predict(X_test),
-                                              target_names=['QCD', 'RPV']))
-    logging.info('Train set accuracy: %f' % lr_clf.score(X_train, y_train))
-    logging.info('Test set accuracy: %f' % lr_clf.score(X_test, y_test))
+    report_classifier(lr_clf, X_train, X_test, y_train, y_test, w_train, w_test)
 
-    from sklearn.tree import DecisionTreeClassifier
+    logging.info('Training a DecisionTreeClassifier')
     dt_clf = make_pipeline(StandardScaler(), DecisionTreeClassifier())
     dt_clf.fit(X_train, y_train)
-    logging.info('Classification report for Decision Tree:\n%s' %
-        sklearn.metrics.classification_report(y_test, dt_clf.predict(X_test),
-                                              target_names=['QCD', 'RPV']))
-    logging.info('Train set accuracy: %f' % dt_clf.score(X_train, y_train))
-    logging.info('Test set accuracy: %f' % dt_clf.score(X_test, y_test))
+    report_classifier(dt_clf, X_train, X_test, y_train, y_test, w_train, w_test)
 
-    from sklearn.ensemble import RandomForestClassifier
+    logging.info('Training a RandomForestClassifier')
     rf_clf = make_pipeline(StandardScaler(), RandomForestClassifier())
     rf_clf.fit(X_train, y_train)
-    logging.info('Classification report for Random Forest:\n%s' %
-        sklearn.metrics.classification_report(y_test, rf_clf.predict(X_test),
-                                              target_names=['QCD', 'RPV']))
-    logging.info('Train set accuracy: %f' % rf_clf.score(X_train, y_train))
-    logging.info('Test set accuracy: %f' % rf_clf.score(X_test, y_test))
+    report_classifier(rf_clf, X_train, X_test, y_train, y_test, w_train, w_test)
 
-    from sklearn.ensemble import GradientBoostingClassifier
+    logging.info('Training a GradientBoostingClassifier')
     bdt_clf = make_pipeline(StandardScaler(), GradientBoostingClassifier())
     bdt_clf.fit(X_train, y_train)
-    logging.info('Classification report for Gradient Boosted Tree:\n%s' %
-        sklearn.metrics.classification_report(y_test, bdt_clf.predict(X_test),
-                                              target_names=['QCD', 'RPV']))
-    logging.info('Train set accuracy: %f' % bdt_clf.score(X_train, y_train))
-    logging.info('Test set accuracy: %f' % bdt_clf.score(X_test, y_test))
+    report_classifier(bdt_clf, X_train, X_test, y_train, y_test, w_train, w_test)
 
-    from sklearn.neural_network import MLPClassifier
+    logging.info('Training an MLPClassifier')
     mlp_clf = make_pipeline(StandardScaler(), MLPClassifier())
     mlp_clf.fit(X_train, y_train)
-    logging.info('Classification report for MLP:\n%s' %
-        sklearn.metrics.classification_report(y_test, mlp_clf.predict(X_test),
-                                              target_names=['QCD', 'RPV']))
-    logging.info('Train set accuracy: %f' % mlp_clf.score(X_train, y_train))
-    logging.info('Test set accuracy: %f' % mlp_clf.score(X_test, y_test))
+    report_classifier(mlp_clf, X_train, X_test, y_train, y_test, w_train, w_test)
 
     # Plot the ROC curves
     rocFig = plt.figure()
@@ -196,12 +215,12 @@ def main():
     # Plot the classifiers
     for clf, clfname in zip(classifiers, clf_names):
         probs = clf.predict_proba(X_test)[:,1]
-        fpr, tpr, _ = sklearn.metrics.roc_curve(y_test, probs)
+        fpr, tpr, _ = sklearn.metrics.roc_curve(y_test, probs, sample_weight=w_test)
         auc = sklearn.metrics.auc(fpr, tpr)
         label = clfname + ', AUC=%.3f' % auc
         plt.plot(fpr, tpr, label=label)
     plt.legend(loc=0)
-    plt.xlim((0, 0.50))
+    plt.xlim((0, 0.70))
     plt.xlabel('False positive rate')
     plt.ylabel('True positive rate')
 
