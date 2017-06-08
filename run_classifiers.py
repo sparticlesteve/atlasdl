@@ -41,6 +41,8 @@ def parse_args():
             help='Number of bkg events to use (per sample)')
     add_arg('-w', '--apply-weights', action='store_true',
             help='Use event weights for classifier evaluation')
+    add_arg('-i', '--interactive', action='store_true',
+            help='Embed IPython session at end of processing for interactive work')
     return parser.parse_args()
 
 def get_file_keys(file_name):
@@ -64,7 +66,7 @@ def retrieve_data(file_name, *keys):
 
 def parse_object_features(array, num_objects, default_val=0.):
     """
-    Takes an array of object arrays and returns a fixed rank-2 array.
+    Takes an array of object arrays and returns a fixed 2D array.
     Clips and pads each element as necessary.
     Output shape is (array.shape[0], num_objects).
     """
@@ -92,7 +94,6 @@ def get_sample_weight(sample_file, lumi=1000.):
     assert np.unique(xsec).size == 1
     return xsec[0] * lumi / tot_events.sum()
 
-# TODO: adjust for weighted samples!!
 def calc_fpr_tpr(y_true, y_pred, w):
     """Calculate false-positive and true-positive rates"""
     tp = (y_true * y_pred * w).sum()
@@ -226,6 +227,13 @@ def main():
 
     # Save the figure
     rocFig.savefig('sklearn_roc.png')
+
+    logging.info('All done!')
+
+    # Open an interactive session if requested
+    if args.interactive:
+        import IPython
+        IPython.embed()
 
 if __name__ == '__main__':
     main()
