@@ -82,7 +82,7 @@ def parse_object_features(array, num_objects, default_val=0.):
 def prepare_sample_features(sample_file, num_jets=5, max_events=None):
     """Load the model features from a sample file"""
     print(sample_file)
-    data = retrieve_data(sample_file, 'passSR', 'fatJetPt', 
+    data = retrieve_data(sample_file, 'passSR', 'fatJetPt',
                          'fatJetEta', 'fatJetPhi', 'fatJetM')
     num_events = data[0].shape[0]
     if max_events is not None and max_events < num_events:
