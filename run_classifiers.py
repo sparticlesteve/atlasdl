@@ -79,14 +79,18 @@ def parse_object_features(array, num_objects, default_val=0.):
         output_array[i,:k] = array[i][:k]
     return output_array
 
-def prepare_sample_features(sample_file, num_jets=4, max_events=None):
+def prepare_sample_features(sample_file, num_jets=5, max_events=None):
     """Load the model features from a sample file"""
-    data = retrieve_data(
-        sample_file, 'fatJetPt', 'fatJetEta', 'fatJetPhi', 'fatJetM')
+    print(sample_file)
+    data = retrieve_data(sample_file, 'passSR', 'fatJetPt', 
+                         'fatJetEta', 'fatJetPhi', 'fatJetM')
     num_events = data[0].shape[0]
     if max_events is not None and max_events < num_events:
         data = [d[:max_events] for d in data]
-    return np.hstack(parse_object_features(a, num_jets) for a in data)
+    evt_features = [data[0][:, None]]
+    obj_features = [parse_object_features(a, num_jets) for a in data[1:]]
+    #[data[0][:, None]] + [parse_object_features(a, num_jets) for a in data[1:]])
+    return np.hstack(evt_features + obj_features)
 
 def get_sample_weight(sample_file, lumi=1000.):
     """Calculate the weight for one sample"""
