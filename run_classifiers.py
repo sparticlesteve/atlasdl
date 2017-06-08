@@ -34,7 +34,7 @@ def parse_args():
     add_arg('--bkg', nargs='*',
             default=['qcd_JZ3', 'qcd_JZ4', 'qcd_JZ5', 'qcd_JZ6',
                      'qcd_JZ7', 'qcd_JZ8', 'qcd_JZ9', 'qcd_JZ10',
-                     'qcd_JZ11', 'qcd_JZ12', 'rpv_1400_850'],
+                     'qcd_JZ11', 'qcd_JZ12'],
             help='Background sample names to use')
     add_arg('--num-sig', type=int, help='Number of signal events to use')
     add_arg('--num-bkg', type=int,
