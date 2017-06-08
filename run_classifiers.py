@@ -115,6 +115,20 @@ def report_classifier(classifier, X_train, X_test, y_train, y_test,
     logging.info('Unweighted test set accuracy: %f' % acc_test)
     logging.info('Unweighted test set classification report:\n%s' % class_report)
 
+def calc_classifier_metrics(classifiers, X_test, y_test, w_test=None):
+    """Calculates false-positive and true-positive rates and AUC
+    for each classifier and returns the arrays"""
+    # Calculate the test set class probability scores
+    probs = [clf.predict_proba(X_test)[:,1] for clf in classifiers]
+    # Calculate the metrics
+    rates = [sklearn.metrics.roc_curve(y_test, p, sample_weight=w_test)
+             for p in probs]
+    # Reduce precision to fix rounding issues
+    fpr = [r[0].astype(np.float32) for r in rates]
+    tpr = [r[1].astype(np.float32) for r in rates]
+    auc = [sklearn.metrics.auc(f, t) for (f, t) in zip(fpr, tpr)]
+    return fpr, tpr, auc
+
 def main():
     """Main execution function"""
 
@@ -137,10 +151,11 @@ def main():
     logging.info('Sig file: %s' % sig_file)
     logging.info('Bkg files: %s' % bkg_files)
 
+    logging.info('Preparing features')
     sample_files = [sig_file] + bkg_files
-    sig_features = prepare_sample_features(sig_file, max_events=args.num_sig)
     bkg_features = [prepare_sample_features(f, max_events=args.num_bkg)
                     for f in bkg_files]
+    sig_features = prepare_sample_features(sig_file, max_events=args.num_sig)
     sample_features = [sig_features] + bkg_features
     sample_events = [sf.shape[0] for sf in sample_features]
     sample_labels = [1.] + [0.]*len(bkg_files)
@@ -207,19 +222,21 @@ def main():
     mlp_clf.fit(X_train, y_train)
     report_classifier(mlp_clf, X_train, X_test, y_train, y_test, w_train, w_test)
 
-    # Plot the ROC curves
-    rocFig = plt.figure()
     classifiers = [lr_clf, rf_clf, bdt_clf, mlp_clf]
     clf_names = ['LR', 'RF', 'BDT', 'MLP']
+    clf_fpr, clf_tpr, clf_auc = calc_classifier_metrics(classifiers, X_test, y_test, w_test)
+
+    # Save the output arrays for later plotting, etc.
+    np.savez('sklearn_roc.npz', fpr=clf_fpr, tpr=clf_tpr, auc=clf_auc, names=clf_names)
+
+    # Plot the ROC curves
+    rocFig = plt.figure()
     # Plot the SR point
     plt.plot(sr_fpr, sr_tpr, 's', label='Ana SR')
     # Plot the classifiers
-    for clf, clfname in zip(classifiers, clf_names):
-        probs = clf.predict_proba(X_test)[:,1]
-        fpr, tpr, _ = sklearn.metrics.roc_curve(y_test, probs, sample_weight=w_test)
-        auc = sklearn.metrics.auc(fpr, tpr)
-        label = clfname + ', AUC=%.3f' % auc
-        plt.plot(fpr, tpr, label=label)
+    for i in range(len(classifiers)):
+        label = clf_names[i] + ', AUC=%.3f' % clf_auc[i]
+        plt.plot(clf_fpr[i], clf_tpr[i], label=label)
     plt.legend(loc=0)
     plt.xlim((0, 0.70))
     plt.xlabel('False positive rate')
