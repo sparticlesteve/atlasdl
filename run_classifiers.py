@@ -238,10 +238,9 @@ def main():
         label = clf_names[i] + ', AUC=%.3f' % clf_auc[i]
         plt.plot(clf_fpr[i], clf_tpr[i], label=label)
     plt.legend(loc=0)
-    plt.xlim((0, 0.70))
+    plt.xlim((0, 0.001))
     plt.xlabel('False positive rate')
     plt.ylabel('True positive rate')
-
     # Save the figure
     rocFig.savefig('sklearn_roc.png')
 
