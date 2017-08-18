@@ -20,20 +20,39 @@ def parse_args():
     add_arg = parser.add_argument
     add_arg('input_file', help='Input npz file of features to evaluate on')
     add_arg('classifiers_file', help='Input pkl file of trained classifiers')
-    add_arg('-r', '--roc-file', help='Output npz file of classifier ROC curves')
+    add_arg('-m', '--metrics-file', help='Output npz file of classifier metric curves')
     add_arg('-i', '--interactive', action='store_true',
             help='Drop into IPython at end')
     return parser.parse_args()
 
 def calc_fpr_tpr(y_true, y_pred, w):
     """Calculate false-positive and true-positive rates"""
-    tp = (y_true * y_pred * w).sum()
-    fp = (np.logical_not(y_true) * y_pred * w).sum()
-    nsig = (y_true * w).sum()
-    nbkg = w.sum() - nsig
+    y_false = 1 - y_true
+    tp = w.dot(y_true * y_pred)
+    fp = w.dot(y_false * y_pred)
+    nsig = w.dot(y_true)
+    nbkg = w.dot(y_false)
     tpr = tp / nsig
     fpr = fp / nbkg
     return fpr, tpr
+
+#def calc_ams(y_true, y_pred, w, reg=10):
+def calc_ams(nsig, nbkg, reg=10):
+    """Approximate median significance"""
+    #wpred = w * y_pred
+    #s = wpred.dot(y_true)
+    #b = wpred.dot(1 - y_true) + reg
+    s, b = nsig, nbkg+reg
+    return np.sqrt(2 * ((s + b) * np.log(1 + s/b) - s))
+
+def calc_all_ams(probs, thresholds, y, w):
+    wtrue = w * y
+    wfalse = w * (1 - y)
+    ams = np.zeros_like(thresholds)
+    for j in range(thresholds.shape[0]):
+        sel = probs > thresholds[j]
+        ams[j] = calc_ams(sel.dot(wtrue), sel.dot(wfalse))
+    return ams
 
 def report_classifier(classifier, X, y, w=None):
     pred = classifier.predict(X)
@@ -54,8 +73,10 @@ def calc_classifier_metrics(classifiers, X, y, w=None):
     # Reduce precision to fix rounding issues
     fpr = [r[0].astype(np.float32) for r in rates]
     tpr = [r[1].astype(np.float32) for r in rates]
+    thr = [r[2] for r in rates]
     auc = [sklearn.metrics.auc(f, t) for (f, t) in zip(fpr, tpr)]
-    return fpr, tpr, auc
+    ams = [calc_all_ams(probs[i], thr[i], y, w) for i in range(len(classifiers))]
+    return fpr, tpr, thr, auc, ams
 
 def main():
     """Main execution function"""
@@ -89,20 +110,26 @@ def main():
         sklearn.metrics.classification_report(
             y, passSR, target_names=['Background', 'Signal']))
 
-    # Calculate TPR and FPR for passSR
+    # Calculate metrics for passSR
     sr_fpr, sr_tpr = calc_fpr_tpr(y, passSR, weights)
-    logging.info('SR FPR: %f, TPR: %f' % (sr_fpr, sr_tpr))
+    sr_nsig = (passSR * weights).dot(y)
+    sr_nbkg = (passSR * weights).dot(1 - y)
+    sr_ams = calc_ams(sr_nsig, sr_nbkg)
+    logging.info('SR FPR: %f, TPR: %f, AMS: %f' % (sr_fpr, sr_tpr, sr_ams))
 
     for clf_name, clf in classifiers.items():
         logging.info('Evaluating classifier: %s' % clf_name)
         report_classifier(clf, X, y, weights)
 
-    clf_fpr, clf_tpr, clf_auc = calc_classifier_metrics(classifiers.values(), X, y, weights)
+    clf_fpr, clf_tpr, clf_thr, clf_auc, clf_ams = calc_classifier_metrics(
+        classifiers.values(), X, y, weights)
     #clf_names = ['LR', 'RF', 'BDT', 'MLP']
 
     # Save the output arrays for later plotting, etc.
-    if args.roc_file is not None:
-        np.savez(args.roc_file, fpr=clf_fpr, tpr=clf_tpr, auc=clf_auc, names=classifiers.keys())
+    if args.metrics_file is not None:
+        np.savez(args.metrics_file, fpr=clf_fpr, tpr=clf_tpr,
+                 thresholds=clf_thr, auc=clf_auc, ams=clf_ams,
+                 names=classifiers.keys())
 
     if args.interactive:
         import IPython
